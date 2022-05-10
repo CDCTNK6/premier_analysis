@@ -216,16 +216,12 @@ if COVID_ONLY:
 
 # COMMAND ----------
 
-samp_dir
-
-# COMMAND ----------
-
 # Writing a sample of the flat file to disk
 samp_ids = agg_all.pat_key.sample(1000)
 agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
 if use_abfss:
     agg_samp = spark.createDataFrame(agg_samp)
-    agg_samp.write.csv(samp_dir + 'agg_samp.csv')
+    agg_samp.write.mode('overwrite').csv(samp_dir + 'agg_samp.csv')
 else:
     agg_samp.to_csv(samp_dir + 'agg_samp.csv', index=False)
 
@@ -234,25 +230,36 @@ else:
 # Writing the flat feature file to disk
 if use_abfss:
     agg_all = spark.createDataFrame(agg_all)
-    agg_all.write.parquet(parq_dir + 'flat_features.parquet')
+    agg_all.write.mode('overwrite')parquet(parq_dir + 'flat_features.parquet')
 else:
     agg_all.to_parquet(parq_dir + 'flat_features.parquet', index=False)
 
 # COMMAND ----------
 
+ftr_dict
+
+# COMMAND ----------
+
+#pd.DataFarme(ftr_dict))
+
+
+# COMMAND ----------
+
 # And saving the feature dict to disk
+# work around for azure 
 if use_abfss:
-    rdd1 = sc.parallelize([ftr_dict])
-    rdd1.saveAsPickleFile(pkl_dir + 'feature_lookup.pkl',5)
+    # rdd1 = sc.parallelize([ftr_dict])
+    # rdd1.saveAsPickleFile(pkl_dir + 'feature_lookup.pkl',5)
+    ftr_dict_df = spark.createDataFrame(pd.DataFrame.from_dict(ftr_dict,orient='index',columns=[' value']))
+    ftr_dict_df.write.mode('overwrite').parquet(pkl_dir + 'feature_lookup.pkl')
 else:
     pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup.pkl', 'wb'))
 
 # COMMAND ----------
 
-#from pyspark.sql.types import StructType
-empty_df = spark.createDataFrame([], StructType([]))
-empty_df.saveAsPickleFile(pkl_dir + 'feature_lookup.pkl',5)
-#pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup.pkl', 'wb'))
+tmp_df = spark.read.parquet(pkl_dir + 'feature_lookup.pkl')
+tmp_df = tmp_df.toPandas().to_dict()
+tmp_df
 
 # COMMAND ----------
 
