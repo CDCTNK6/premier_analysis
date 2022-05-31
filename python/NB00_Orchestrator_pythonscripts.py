@@ -41,4 +41,3 @@ dbutils.fs.mkdirs('/home/tnk6/model_checkpoints/')
 
 # COMMAND ----------
 
-

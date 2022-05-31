@@ -364,4 +364,3 @@ sklearn.metrics.plot_confusion_matrix(model, X_test, y_test)
 
 # COMMAND ----------
 
-
