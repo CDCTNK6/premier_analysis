@@ -17,18 +17,25 @@ from typing import Tuple
 pd.options.mode.chained_assignment = None
 
 
+def read_table(dir,read_dir,use_abfss=False, columns=[]):
+    # TO DO: figure out how to propagate spark session from notebook to script
+    from pyspark.context import SparkContext
+    from pyspark.sql.session import SparkSession
+    sc = SparkContext.getOrCreate()
+    spark = SparkSession(sc)
+    if use_abfss:
+         df = spark.read.parquet(dir + read_dir)
+    else:
+        df = spark.sql(f"select * from tnk6_demo.{read_dir}")
+    if columns:
+        df = df.select(columns)
+    df = df.toPandas() 
+    df.columns = df.columns.str.lower()
+    return df
  
-
 class load_parquets:
-    def __init__(self, dir='data/data/', use_abfss=True):
-        
-        
-        # TO DO: figure out how to propagate spark session from notebook to script
-        from pyspark.context import SparkContext
-        from pyspark.sql.session import SparkSession
-        sc = SparkContext.getOrCreate()
-        spark = SparkSession(sc)
-        
+    def __init__(self, dir='data/data/', use_abfss=False):
+    
         # Pulling the absolute path to avoid weirdness with pd.read_parquet
         # dir = os.path.abspath(dir) + '/'
         # print(dir)
@@ -51,62 +58,62 @@ class load_parquets:
             'observation'
         ]
 
-        # Pulling in the visit tables 
-        read_dir = dir + 'vw_covid_pat/'
-        self.pat = spark.read.parquet(read_dir).toPandas() if use_abfss else pd.read_parquet(read_dir)
-        read_dir = dir + 'vw_covid_id/'
-        self.id = spark.read.parquet(read_dir).toPandas() if use_abfss else pd.read_parquet(read_dir)
 
-        # Pulling the lab and vitals
-        read_dir = dir + 'vw_covid_genlab/'
-        genlab = spark.read.parquet(read_dir).select(genlab_cols).toPandas() if use_abfss else pd.read_parquet(read_dir, columns=genlab_cols)
-        read_dir = dir + 'vw_covid_hx_genlab/'
-        hx_genlab = spark.read.parquet(read_dir).select(genlab_cols).toPandas() if use_abfss else pd.read_parquet(read_dir,
-                                    columns=genlab_cols)
-        read_dir = dir + 'vw_covid_lab_res/'
-        lab_res = spark.read.parquet(read_dir).select(lab_res_cols).toPandas() if use_abfss else pd.read_parquet(read_dir,
-                                  columns=lab_res_cols)
-        read_dir = dir + 'vw_covid_hx_lab_res/'
-        hx_lab_res = spark.read.parquet(read_dir).select(lab_res_cols).toPandas() if use_abfss else pd.read_parquet(read_dir,
-                                     columns=lab_res_cols)
-        read_dir = dir + 'vw_covid_vitals/'
-        vitals = spark.read.parquet(read_dir).select(vital_cols).toPandas() if use_abfss else pd.read_parquet(read_dir, columns=vital_cols)
-        read_dir = dir +'vw_covid_hx_vitals/'
-        hx_vitals = spark.read.parquet(read_dir).select(vital_cols).toPandas() if use_abfss else pd.read_parquet(read_dir,
-                                    columns=vital_cols)
 
-        # Concatenating the current and historical labs and vitals
+
+
+         # Pulling in the visit tables 
+        read_dir = 'vw_covid_pat'
+        self.pat = read_table(dir,read_dir,use_abfss, columns=[])
+        read_dir = 'vw_covid_id'
+        self.id = read_table(dir,read_dir,use_abfss, columns=[])
+ 
+         # Pulling the lab and vitals
+        read_dir = 'vw_covid_genlab'
+        genlab = read_table(dir,read_dir,use_abfss, columns=genlab_cols)
+        read_dir = 'vw_covid_hx_genlab'
+        hx_genlab = read_table(dir,read_dir,use_abfss, columns=genlab_cols)
+        read_dir = 'vw_covid_lab_res'
+        lab_res = read_table(dir,read_dir,use_abfss, columns=lab_res_cols)
+        read_dir = 'vw_covid_hx_lab_res'
+        hx_lab_res = read_table(dir,read_dir,use_abfss, columns=lab_res_cols)
+        read_dir = 'vw_covid_vitals'
+        vitals = read_table(dir,read_dir,use_abfss, columns=vital_cols)
+        read_dir = 'vw_covid_hx_vitals'
+        hx_vitals = read_table(dir,read_dir,use_abfss, columns=vital_cols)
+ 
+         # Concatenating the current and historical labs and vitals
         self.genlab = pd.concat([genlab, hx_genlab], axis=0)
         self.vitals = pd.concat([vitals, hx_vitals], axis=0)
         self.lab_res = pd.concat([lab_res, hx_lab_res], axis=0)
 
-        # Pulling in the billing tables
-        read_dir = dir + 'vw_covid_bill_lab/'
-        bill_lab = spark.read.parquet(read_dir).select(bill_cols).toPandas() if use_abfss else pd.read_parquet(read_dir,
-                                   columns=bill_cols)
-        read_dir = dir + 'vw_covid_bill_pharm/'
-        bill_pharm = spark.read.parquet(read_dir).select(bill_cols).toPandas() if use_abfss else pd.read_parquet(read_dir,
-                                     columns=bill_cols)
-        read_dir = dir + 'vw_covid_bill_oth/'
-        bill_oth = spark.read.parquet(read_dir).select(bill_cols).toPandas() if use_abfss else pd.read_parquet(read_dir,
-                                   columns=bill_cols)
-        read_dir = dir + 'vw_covid_hx_bill/'
-        hx_bill = spark.read.parquet(read_dir).select(bill_cols).toPandas() if use_abfss else pd.read_parquet(read_dir, columns=bill_cols)
+         # Pulling in the billing tables
+        read_dir = 'vw_covid_bill_lab'
+        bill_lab = read_table(dir,read_dir,use_abfss, columns=bill_cols)
+        read_dir = 'vw_covid_bill_pharm'
+        bill_pharm = read_table(dir,read_dir,use_abfss, columns=bill_cols)
+        read_dir = 'vw_covid_bill_oth'
+        bill_oth = read_table(dir,read_dir,use_abfss, columns=bill_cols)
+        read_dir = 'vw_covid_hx_bill'
+        hx_bill = read_table(dir,read_dir,use_abfss, columns=bill_cols)
         self.bill = pd.concat([bill_lab, bill_pharm, bill_oth, hx_bill],
-                              axis=0)
-
-        # Pulling in the additional diagnosis and procedure tables
-        read_dir = dir + 'vw_covid_paticd_diag/'
-        pat_diag = spark.read.parquet(read_dir).toPandas() if use_abfss else pd.read_parquet(read_dir)
-        read_dir = dir + 'vw_covid_paticd_proc/'
-        pat_proc = spark.read.parquet(read_dir).toPandas() if use_abfss else pd.read_parquet(read_dir)
-        read_dir = dir + 'vw_covid_additional_paticd_' + 'diag/'
-        add_diag = spark.read.parquet(read_dir).toPandas() if use_abfss else pd.read_parquet(read_dir)
-        read_dir = dir + 'vw_covid_additional_paticd_' + 'proc/'
-        add_proc = spark.read.parquet(read_dir).toPandas() if use_abfss else pd.read_parquet(read_dir)
+                               axis=0)
+ 
+         # Pulling in the additional diagnosis and procedure tables
+        read_dir = 'vw_covid_paticd_diag'
+        pat_diag = read_table(dir,read_dir,use_abfss, columns=[])
+        read_dir = 'vw_covid_paticd_proc'
+        pat_proc = read_table(dir,read_dir,use_abfss, columns=[])
+        read_dir = 'vw_covid_additional_paticd_' + 'diag'
+        add_diag = read_table(dir,read_dir,use_abfss, columns=[])
+        read_dir = 'vw_covid_additional_paticd_' + 'proc'
+        add_proc = read_table(dir,read_dir,use_abfss, columns=[])
         self.diag = pd.concat([pat_diag, add_diag], axis=0)
         self.proc = pd.concat([pat_proc, add_proc], axis=0)
+ 
+        self.proc.reset_index(drop=True, inplace=True)
 
+     
         # Resetting indexes for the concatenated tables
         self.bill.reset_index(drop=True, inplace=True)
         self.genlab.reset_index(drop=True, inplace=True)
@@ -115,11 +122,10 @@ class load_parquets:
         self.diag.reset_index(drop=True, inplace=True)
         self.proc.reset_index(drop=True, inplace=True)
 
-        # And any extras
-        read_dir = dir + 'icdcode/'
-        self.icd = spark.read.parquet(read_dir).toPandas() if use_abfss else pd.read_parquet(read_dir)
-
-        # sc.stop() # this will resstart the notebook 
+         # And any extras
+        read_dir = 'icdcode'
+        self.icd = read_table(dir,read_dir,use_abfss, columns=[])
+        
         return
 
 
