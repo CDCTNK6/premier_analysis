@@ -37,7 +37,11 @@
 
 -- COMMAND ----------
 
-DROP TABLE IF EXISTS tnk6_demo.vw_covid_hx_lab_sens;
+select * from cdh_premier.patdemo limit 5;
+
+-- COMMAND ----------
+
+select * from tnk6_demo.vw_covid_id limit 5;
 
 -- COMMAND ----------
 
@@ -494,4 +498,5 @@ SELECT * from cdh_premier.providers
 SELECT * from tnk6_demo.icdcode limit 5;
 
 -- COMMAND ----------
+
 

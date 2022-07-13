@@ -58,10 +58,6 @@ class load_parquets:
             'observation'
         ]
 
-
-
-
-
          # Pulling in the visit tables 
         read_dir = 'vw_covid_pat'
         self.pat = read_table(dir,read_dir,use_abfss, columns=[])

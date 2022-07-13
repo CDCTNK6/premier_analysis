@@ -71,6 +71,23 @@ pq.diag
 
 # COMMAND ----------
 
+pq.icd
+
+# COMMAND ----------
+
+# Sampling (for faster compute)
+subsample = pq.pat.pat_key.sample(1000000)
+pq.pat = pq.pat[pq.pat.pat_key.isin(subsample)].reset_index(drop=True)
+pq.bill = pq.bill[pq.bill.pat_key.isin(subsample)].reset_index(drop=True)
+pq.diag = pq.diag[pq.diag.pat_key.isin(subsample)].reset_index(drop=True)
+pq.genlab = pq.genlab[pq.genlab.pat_key.isin(subsample)].reset_index(drop=True)
+pq.id = pq.id[pq.id.pat_key.isin(subsample)].reset_index(drop=True)
+pq.lab_res = pq.lab_res[pq.lab_res.pat_key.isin(subsample)].reset_index(drop=True)
+pq.proc = pq.proc[pq.proc.pat_key.isin(subsample)].reset_index(drop=True)
+pq.vitals = pq.vitals[pq.vitals.pat_key.isin(subsample)].reset_index(drop=True)
+
+# COMMAND ----------
+
 # Replacing NaN with 0
 pq.id.dropna(axis=0, subset=['days_from_index'], inplace=True)
 
@@ -101,6 +118,8 @@ bill, bill_dict = tp.df_to_features(pq.bill,
                                     time_cols=['serv_day'])
 pq.bill = []
 
+# COMMAND ----------
+
 genlab, genlab_dict = tp.df_to_features(
     pq.genlab,
     feature_prefix='genl',
@@ -109,12 +128,6 @@ genlab, genlab_dict = tp.df_to_features(
     replace_col='lab_test_result',
     num_col='numeric_value')
 pq.genlab = []
-
-#if use_abfss:
-#    text_col = 'icd_code'
-#else:
-#    text_col = 'ICD_CODE'
-
 
 proc, proc_dict = tp.df_to_features(pq.proc,
                                     feature_prefix='proc',
@@ -143,6 +156,10 @@ lab_res, lab_res_dict = tp.df_to_features(
 
 # Freeing up the last bit of memory memory
 pq = []
+
+
+
+# COMMAND ----------
 
 # Combining the feature dicts and saving to disk
 dicts = [
@@ -199,11 +216,11 @@ agg_all
 
 # COMMAND ----------
 
-# NEW: limit to 2021 data 
-print(agg_all.pat_key.nunique())
-
-agg_all = agg_all[agg_all['pat_key'].isin(agg_all.pat_key.sample(1000000))].reset_index(drop=True)
-agg_all
+# NEW: limit to 2021 data; see subsampling above 
+#print(agg_all.pat_key.nunique())
+# 
+#agg_all = agg_all[agg_all['pat_key'].isin(agg_all.pat_key.sample(1000000))].reset_index(drop=True)
+#agg_all
 
 # COMMAND ----------
 
@@ -318,4 +335,5 @@ else:
     agg_all.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.intertim_flat_features")
 
 # COMMAND ----------
+
 

@@ -1,4 +1,16 @@
 # Databricks notebook source
+# Set up Azure storage connection
+spark.conf.set("fs.azure.account.auth.type.davsynapseanalyticsdev.dfs.core.windows.net", "OAuth")
+spark.conf.set("fs.azure.account.oauth.provider.type.davsynapseanalyticsdev.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
+spark.conf.set("fs.azure.account.oauth2.client.id.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-id"))
+spark.conf.set("fs.azure.account.oauth2.client.secret.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-secret"))
+spark.conf.set("fs.azure.account.oauth2.client.endpoint.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-tenant-id-endpoint"))
+
+# Enable Arrow-based columnar data transfers
+spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+
+# COMMAND ----------
+
 #!pip install mlflow --quiet
 
 # COMMAND ----------
@@ -47,18 +59,6 @@ import mlflow
 from databricks import feature_store 
 from delta.tables import * 
 from tools import preprocessing as tp
-
-# COMMAND ----------
-
-# Set up Azure storage connection
-spark.conf.set("fs.azure.account.auth.type.davsynapseanalyticsdev.dfs.core.windows.net", "OAuth")
-spark.conf.set("fs.azure.account.oauth.provider.type.davsynapseanalyticsdev.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
-spark.conf.set("fs.azure.account.oauth2.client.id.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-id"))
-spark.conf.set("fs.azure.account.oauth2.client.secret.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-secret"))
-spark.conf.set("fs.azure.account.oauth2.client.endpoint.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-tenant-id-endpoint"))
-
-# Enable Arrow-based columnar data transfers
-spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
 # COMMAND ----------
 
@@ -153,7 +153,7 @@ spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 # COMMAND ----------
 
 # Setting the globals
-OUTCOME = 'icu'
+OUTCOME = 'misa_pt'
 USE_DEMOG = True
 AVERAGE = 'weighted'
 DAY_ONE_ONLY = True
@@ -161,7 +161,7 @@ TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2022
 CHRT_PRFX = ''
-STRATIFY ='icu'
+STRATIFY ='misa_pt'
 
 # Setting the directories and importing the data
 # If no args are passed to overwrite these values, use repo structure to construct
@@ -182,6 +182,18 @@ print(f'Stats Dir: {stats_dir}')
 
 # COMMAND ----------
 
+with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
+    all_feats = pkl.load(f)
+    print(all_feats)
+
+# COMMAND ----------
+
+#with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
+#    vocab = pkl.load(f)
+#    print(vocab)
+
+# COMMAND ----------
+
 # Create analysis dirs if it doesn't exist
 [
     os.makedirs(directory, exist_ok=True)
@@ -194,13 +206,11 @@ inputs = tp.read_table(data_dir,"interim_trimmed_seqs_pkl")
 inputs = inputs.values.tolist() 
 
 
-#with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
-#    vocab = pkl.load(f)
+
 vocab = tp.read_table(data_dir,"all_ftrs_dict_pkl")
 vocab = dict(vocab[['value','index']].values)  # TODO: Fix upstream 
 
-#with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
-#    all_feats = pkl.load(f)
+
 all_feats = tp.read_table(data_dir,"intertim_feature_lookup")
 all_feats = dict(all_feats.values)
 
@@ -211,13 +221,21 @@ with open(pkl_dir + "demog_dict.pkl", "rb") as f:
 
 # COMMAND ----------
 
+demog_dict
+
+# COMMAND ----------
+
+vocab = {v: k for k, v in vocab.items()}
+vocab
+
+# COMMAND ----------
+
 tmp_lookup = pd.DataFrame([all_feats],index=['desc']).transpose()
 print(tmp_lookup.shape)
-tmp_lookup2 = pd.DataFrame([demog_dict],index=['desc']).transpose()
-print(tmp_lookup2.shape)
-tmp_lookup2
+tmp_lookup2 = pd.DataFrame([demog_dict],index=['desc']) #.transpose()
+print(tmp_lookup2)
 #all_feats
-pd.DataFrame([vocab],index=['code']).transpose()
+pd.DataFrame([vocab],index=['code']) #.transpose()
 
 # COMMAND ----------
 
@@ -244,9 +262,35 @@ cohort
 
 # COMMAND ----------
 
+inputs
+
+# COMMAND ----------
+
+#tmp = [[list(l) for l in sublist] for sublist in features]
+tmp = [l[-1] if len(l) > 0 else [] for l in features ]
+tmp2 = pd.DataFrame(tmp)
+
+# COMMAND ----------
+
+tmp2[tmp2.sum(axis=1) == 0].index
+# remove the index from the rest 
+
+# COMMAND ----------
+
+print(type(features))
+print(type(features[0]))
+print(type(features[0][0]))
+tmp = features[0].tolist()
+print(type(tmp))
+print(type(tmp[0]))
+tmp[-1]
+
+# COMMAND ----------
+
 # Optionally limiting the features to only those from the first day
 # of the actual COVID visit
 if DAY_ONE_ONLY:
+    #features = [l[-1] if len(l) > 0 else [] for l in features ]
     features = [l[-1] for l in features]
 else:
     features = [tp.flatten(l) for l in features]
@@ -353,15 +397,50 @@ for var in [train,test,val]:
 
 # COMMAND ----------
 
-X[test]
+# MAGIC %sql 
+# MAGIC --drop table tnk6_demo.output_test_dataset
 
 # COMMAND ----------
 
-tmp_df = pd.DataFrame(X[test].toarray())
+tmp_df = pd.DataFrame()
 tmp_df['target'] = y[test].astype(int)
-tmp_to_save = pd.DataFrame(tmp_df)
-tmp_to_save = spark.createDataFrame(tmp_to_save)
+tmp_df['features'] = [*X[test].toarray()]
+tmp_to_save = spark.createDataFrame(tmp_df)
 tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.output_test_dataset")
+
+# COMMAND ----------
+
+tmp_df = pd.DataFrame()
+tmp_df['target'] = y[val].astype(int)
+tmp_df['features'] = [*X[val].toarray()]
+tmp_to_save = spark.createDataFrame(tmp_df)
+tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.output_val_dataset")
+
+# COMMAND ----------
+
+from functools import reduce
+from pyspark.sql import DataFrame
+# Note: sparse matrix doesn't throw an error if range is greater than # or rows
+output_dfs = []
+for index in range(0,X[train].shape[0],10000):
+    tmp_df = pd.DataFrame()
+    print(index)
+    tmp_df['target'] = y[train][index:index+10000].astype(int)
+    tmp_df['features'] = [*X[train][index:index+10000].toarray()]
+    tmp_to_save = spark.createDataFrame(tmp_df)
+    output_dfs.append(tmp_to_save)
+output_df = reduce(DataFrame.union, output_dfs)
+print(output_df.count())
+display(output_df)
+
+# COMMAND ----------
+
+#tmp_df = pd.DataFrame()
+#tmp_df['target'] = y[train].astype(int)
+#tmp_df['features'] = [*X[train].toarray()]
+#tmp_to_save = spark.createDataFrame(tmp_df)
+#tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.output_train_dataset")
+output_df.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.output_train_dataset")
 
 # COMMAND ----------
 
@@ -396,7 +475,7 @@ display(test_delta_table.history())
 # COMMAND ----------
 
 tmp_val = test_delta_table.history().select("version").collect()
-print(tmp_val[-1].__getitem__('version'))
+print(tmp_val[0].__getitem__('version'))
 
 # COMMAND ----------
 
@@ -448,6 +527,26 @@ if DAY_ONE_ONLY:
 #        df.to_excel(writer, sheet_name='coef_' + str(i), index=False)
 
 #    writer.save()
+mlflow.end_run()
+
+# COMMAND ----------
+
+coef_df
+
+# COMMAND ----------
+
+results_df_template = cohort.loc[test,['key',OUTCOME]]
+
+# COMMAND ----------
+
+def write_pred_spark(result_df, test_probs, test_preds, model):
+    if test_probs is None:
+        result_df['test_probs'] = -1
+    else:
+        result_df['test_probs'] = test_probs
+    result_df['test_preds'] = test_preds
+    tmp_to_save = spark.createDataFrame(result_df)
+    tmp_to_save.write.mode("overwrite").format("delta").saveAsTable(f"tnk6_demo.output_predictions_{model}")
 
 # COMMAND ----------
 
@@ -463,12 +562,12 @@ mod_names = ['lgr', 'rf', 'gbc', 'svm']
 # Turning the crank like a proper data scientist
 for i, mod in enumerate(mods):
     # Fitting the model and setting the name
-    with mlflow.start_run() as run:
+    with mlflow.start_run(nested=True) as run:
 #    with mlflow.start_run(experiment_id=experiment_id) as run:
         mod.fit(X[train], y[train])
         mlflow.sklearn.log_model(mod, mod_names[i])
         mlflow.log_param("Test Dataset",test_table_name)
-        mlflow.log_param("Test Dataset Version",tmp_val[-1].__getitem__('version'))
+        mlflow.log_param("Test Dataset Version",tmp_val[0].__getitem__('version'))
     mod_name = mod_names[i]
     if DAY_ONE_ONLY:
         mod_name += '_d1'
@@ -485,12 +584,29 @@ for i, mod in enumerate(mods):
                                    cutpoint=cutpoint,
                                    mod_name=mod_name,
                                    average=AVERAGE)
-            ta.write_preds(output_dir=output_dir + "/",
-                           preds=test_preds,
-                           outcome=OUTCOME,
-                           mod_name=mod_name,
-                           test_idx=test,
-                           probs=test_probs)
+            result_df = results_df_template.copy()
+            
+            mlflow.log_metric("tp", stats['tp'][0])
+            mlflow.log_metric("fp", stats['fp'][0])
+            mlflow.log_metric("tn", stats['tn'][0])
+            mlflow.log_metric("fn", stats['fn'][0])
+            mlflow.log_metric("sens", stats['sens'][0])
+            mlflow.log_metric("spec", stats['spec'][0])
+            mlflow.log_metric("ppv", stats['ppv'][0])
+            mlflow.log_metric("npv", stats['npv'][0])
+            mlflow.log_metric("j", stats['j'][0])
+            mlflow.log_metric("f1", stats['f1'][0])
+            mlflow.log_metric("mcc", stats['mcc'][0])
+            mlflow.log_metric("brier", stats['brier'][0])
+            mlflow.log_metric("auc", stats['auc'][0])
+            
+#            write_pred_spark(result_df, test_probs, test_preds, mod_names[i])
+            #ta.write_preds(output_dir=output_dir + "/",
+            #               preds=test_preds,
+            #               outcome=OUTCOME,
+            #               mod_name=mod_name,
+            #               test_idx=test,
+            #               probs=test_probs)
         else:
             cutpoint = None
             test_probs = mod.predict_proba(X[test])
@@ -499,12 +615,13 @@ for i, mod in enumerate(mods):
                                    test_probs,
                                    mod_name=mod_name,
                                    average=AVERAGE)
-            ta.write_preds(output_dir=output_dir + "/",
-                           preds=test_preds,
-                           probs=np.max(test_probs, axis=1),
-                           outcome=OUTCOME,
-                           mod_name=mod_name,
-                           test_idx=test)
+            write_pred_spark(result_df, np.max(test_probs, axis=1), test_preds, mod_names[i])
+            #ta.write_preds(output_dir=output_dir + "/",
+            #               preds=test_preds,
+            #               probs=np.max(test_probs, axis=1),
+            #               outcome=OUTCOME,
+            #               mod_name=mod_name,
+            #               test_idx=test)
 
         # Write out multiclass probs as pkl
         probs_file = mod_name + '_' + OUTCOME + '.pkl'
@@ -519,14 +636,21 @@ for i, mod in enumerate(mods):
                                test_preds,
                                mod_name=mod_name,
                                average=AVERAGE)
-        ta.write_preds(output_dir=output_dir + "/",
-                       preds=test_preds,
-                       outcome=OUTCOME,
-                       mod_name=mod_name,
-                       test_idx=test)
+        #write_pred_spark(result_df, None, test_preds, mod_names[i])
+        #ta.write_preds(output_dir=output_dir + "/",
+        #               preds=test_preds,
+        #               outcome=OUTCOME,
+        #               mod_name=mod_name,
+        #               test_idx=test)
 
-    # Saving the results to disk
-    ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
+   
+         # Saving the results to disk
+    #ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
 
 # COMMAND ----------
+
+stats
+
+# COMMAND ----------
+
 

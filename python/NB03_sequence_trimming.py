@@ -155,13 +155,35 @@ pkl_dir = os.path.join(output_dir, "pkl")
 
 # COMMAND ----------
 
+# Reading in the full dataset
 with open(os.path.join(pkl_dir, 'int_seqs.pkl'), 'rb') as f:
-    int_seqs_compare = pkl.load(f)
-len(int_seqs_compare)
+    comp_int_seqs = pkl.load(f)
+
+
+with open(os.path.join(pkl_dir, 'pat_data.pkl'), 'rb') as f:
+    comp_pat_data = pkl.load(f)
+
+with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
+    comp_vocab = pkl.load(f)
+
+with open(os.path.join(pkl_dir, "feature_lookup.pkl"), "rb") as f:
+    comp_all_feats = pkl.load(f)
 
 # COMMAND ----------
 
-int_seqs_compare
+comp_pat_data
+print(type(comp_pat_data))
+print(len(comp_pat_data))
+print(comp_pat_data.keys())
+print(type(comp_pat_data['key']))
+print(comp_pat_data['outcome'].keys())
+print(comp_pat_data['outcome']['icu'])
+
+# COMMAND ----------
+
+print(type(comp_int_seqs))
+print(len(comp_int_seqs))
+comp_int_seqs[0][0][0]
 
 # COMMAND ----------
 
@@ -183,7 +205,8 @@ int_seqs_compare
 #    int_seqs = pkl.load(f)
 int_seqs = tp.read_table(data_dir,"interim_int_seqs_pkl")  
 int_seqs = int_seqs.values.tolist() 
-with open(os.path.join(pkl_dir, 'pat_data_fromdelta.pkl'), 'rb') as f:
+#with open(os.path.join(pkl_dir, 'pat_data_fromdelta.pkl'), 'rb') as f:
+with open(os.path.join(pkl_dir, 'pat_data.pkl'), 'rb') as f:
     pat_data = pkl.load(f)
 vocab = tp.read_table(data_dir,"all_ftrs_dict_pkl")
 vocab = dict(vocab.values)
@@ -196,7 +219,19 @@ print(n_patients)
 
 # COMMAND ----------
 
-int_seqs
+print(type(int_seqs))
+print(len(int_seqs))
+int_seqs[0][0][0]
+
+# COMMAND ----------
+
+
+print(type(pat_data))
+print(len(pat_data))
+print(pat_data.keys())
+print(type(pat_data['key']))
+print(pat_data['outcome'].keys())
+print(pat_data['outcome']['icu'])
 
 # COMMAND ----------
 
@@ -294,4 +329,9 @@ tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.inter
 display(tmp_to_save)
 
 # COMMAND ----------
+
+tmp_to_save.count()
+
+# COMMAND ----------
+
 

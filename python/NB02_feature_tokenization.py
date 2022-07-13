@@ -1,4 +1,13 @@
 # Databricks notebook source
+# Set up Azure storage connection
+spark.conf.set("fs.azure.account.auth.type.davsynapseanalyticsdev.dfs.core.windows.net", "OAuth")
+spark.conf.set("fs.azure.account.oauth.provider.type.davsynapseanalyticsdev.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
+spark.conf.set("fs.azure.account.oauth2.client.id.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-id"))
+spark.conf.set("fs.azure.account.oauth2.client.secret.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-secret"))
+spark.conf.set("fs.azure.account.oauth2.client.endpoint.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-tenant-id-endpoint"))
+
+# COMMAND ----------
+
 import pandas as pd
 import numpy as np
 import pickle as pkl
@@ -6,6 +15,7 @@ import os
 from sklearn.feature_extraction.text import CountVectorizer
 from tools import preprocessing as tp
 from databricks import feature_store
+from pyspark.ml.feature import CountVectorizer as sparkCV
 
 # COMMAND ----------
 
@@ -14,15 +24,10 @@ from databricks import feature_store
 
 # COMMAND ----------
 
-# Set up Azure storage connection
-spark.conf.set("fs.azure.account.auth.type.davsynapseanalyticsdev.dfs.core.windows.net", "OAuth")
-spark.conf.set("fs.azure.account.oauth.provider.type.davsynapseanalyticsdev.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
-spark.conf.set("fs.azure.account.oauth2.client.id.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-id"))
-spark.conf.set("fs.azure.account.oauth2.client.secret.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-secret"))
-spark.conf.set("fs.azure.account.oauth2.client.endpoint.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-tenant-id-endpoint"))
+
 
 # Enable Arrow-based columnar data transfers
-spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+#spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
 # COMMAND ----------
 
@@ -53,6 +58,25 @@ final_cols = ['covid_visit', 'ftrs']
 
 # COMMAND ----------
 
+comp_pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
+comp_id_df = pd.read_parquet(data_dir + "vw_covid_id/")
+comp_provider = pd.read_parquet(data_dir + "providers/")
+
+
+# COMMAND ----------
+
+comp_pat_df
+
+# COMMAND ----------
+
+comp_id_df
+
+# COMMAND ----------
+
+comp_provider
+
+# COMMAND ----------
+
 # Note: refactored to read files from delta tables
 # %% Read in the pat and ID tables
 #pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
@@ -65,6 +89,30 @@ id_df = tp.read_table(data_dir, "vw_covid_id")
 provider = tp.read_table(data_dir,"providers")
 # TO DO: (pre-process targets - see Github premier_data)
 misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
+#misa_data = misa_data.head(10000) # use for testing 
+
+# COMMAND ----------
+
+pat_df
+
+# COMMAND ----------
+
+id_df
+
+# COMMAND ----------
+
+provider
+
+# COMMAND ----------
+
+print(id_df.columns)
+print(comp_id_df.columns)
+print(pat_df.columns)
+print(comp_pat_df.columns)
+
+# COMMAND ----------
+
+misa_data
 
 # COMMAND ----------
 
@@ -97,6 +145,47 @@ trimmed_seq
 
 # COMMAND ----------
 
+# MAGIC %md 
+# MAGIC # Using Spark CountVectorizer
+
+# COMMAND ----------
+
+# Using Spark 
+from pyspark.sql.functions import array
+tmp_df = trimmed_seq[['medrec_key','pat_key','ftrs']]
+tmp_df = spark.createDataFrame(tmp_df)
+display(tmp_df)
+
+# COMMAND ----------
+
+import pyspark.sql.functions as F
+#tmp_df = tmp_df.withColumn('ftrs', array(tmp_df['ftrs']))
+#tmp_df = tmp_df.select(F.split(F.col("ftrs")," ").alias("ftrs_array")).drop("ftrs")
+tmp_df = tmp_df.withColumn('ftrs', F.split(F.col("ftrs")," "))
+display(tmp_df)
+
+# COMMAND ----------
+
+sp_cv = sparkCV()
+sp_cv.setInputCol('ftrs')
+sp_cv.setOutputCol('ftrs_vectors')
+sp_model = sp_cv.fit(tmp_df)
+sp_model.setInputCol('ftrs')
+ftrs_df = sp_model.transform(tmp_df) #.show(truncate=False)
+display(ftrs_df)
+
+# COMMAND ----------
+
+#sp_model.show(truncate=True)
+sorted(sp_model.vocabulary)
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ### Using original vectorization
+
+# COMMAND ----------
+
 # %% Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
 vec = CountVectorizer(ngram_range=(1, 1), min_df=MIN_DF, binary=True)
@@ -107,19 +196,43 @@ vocab = vec.vocabulary_
 for k in vocab.keys():
     vocab[k] += 1
 
+vocab
+
+# COMMAND ----------
+
 # Converting the bags of feature strings to integers
 int_ftrs = [[vocab[k] for k in doc.split() if k in vocab.keys()]
             for doc in ftrs]
 trimmed_seq["int_ftrs"] = int_ftrs
+trimmed_seq
+
+# COMMAND ----------
 
 # list of integer sequence arrays split by medrec_key
+# groups by medrec and puts the values into an list of array of lists
 int_seqs = [
     df.values for _, df in trimmed_seq.groupby("medrec_key")["int_ftrs"]
 ]
+int_seqs
+
+# COMMAND ----------
 
 # Converting to a nested list to keep things clean
 seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 seq_gen
+
+# COMMAND ----------
+
+trimmed_seq
+
+# COMMAND ----------
+
+print(demog_vars)
+pat_df
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
@@ -161,8 +274,19 @@ if ADD_DEMOG:
     # And saving vocab
     with open(pkl_dir + "demog_dict.pkl", "wb") as f:
         pkl.dump(demog_vocab, f)
-   
-seq_gen
+
+# COMMAND ----------
+
+demog_ints
+
+# COMMAND ----------
+
+demog_vocab
+
+# COMMAND ----------
+
+print(seq_gen[0][0][0])
+print(seq_gen[0][1])
 
 # COMMAND ----------
 
@@ -197,6 +321,10 @@ trimmed_seq
 
 # COMMAND ----------
 
+
+
+# COMMAND ----------
+
 # Writing the trimmed sequences to disk
 if WRITE_PARQUET:
     #trimmed_seq.to_parquet(output_dir + 'parquet/trimmed_seq.parquet')
@@ -209,9 +337,21 @@ if WRITE_PARQUET:
 with open(pkl_dir + "int_seqs_fromdelta.pkl", "wb") as f:
     pkl.dump(seq_gen, f)
 
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC --drop table tnk6_demo.interim_int_seqs_pkl
+
+# COMMAND ----------
+
 tmp_to_save = pd.DataFrame(seq_gen)
 tmp_to_save = spark.createDataFrame(tmp_to_save)
 tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.interim_int_seqs_pkl")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC --DROP TABLE tnk6_demo.interim_int_seqs_pkl
 
 # COMMAND ----------
 
@@ -319,11 +459,24 @@ if REVERSE_VOCAB:
 #tmp_to_save = pd.DataFrame.from_dict(vocab,orient='index',columns=['value'])
 tmp_to_save = pd.DataFrame(vocab.items(),columns=['index','value'])
 tmp_to_save = spark.createDataFrame(tmp_to_save)
-tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.all_ftrs_dict_pkl")
+
+
+# COMMAND ----------
+
+display(tmp_to_save)
 
 # COMMAND ----------
 
 #tmp_to_save.write.mode("ignore").format("delta").saveAsTable("tnk6_demo.all_ftrs_dict_pkl")
+from pyspark.sql.types import StringType, FloatType, LongType
+tmp_to_save = tmp_to_save.withColumn("index", tmp_to_save["index"].cast(LongType()))
+tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.all_ftrs_dict_pkl")
 
 # COMMAND ----------
+
+# MAGIC %sql
+# MAGIC --drop table tnk6_demo.all_ftrs_dict_pkl
+
+# COMMAND ----------
+
 

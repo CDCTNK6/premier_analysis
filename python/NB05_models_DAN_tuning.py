@@ -38,6 +38,7 @@ import tools.preprocessing as tp
 import tools.keras as tk
 
 import mlflow
+import mlflow.tensorflow
 import datetime, uuid
 
 #from kerastuner.tuners import RandomSearch
@@ -224,7 +225,7 @@ MOD_NAME = 'dan'   #'lstm'
 WEIGHTED_LOSS = True
 if WEIGHTED_LOSS:
     MOD_NAME += '_w'
-OUTCOME = 'misa_pt'
+OUTCOME = 'icu'
 DEMOG = True
 CHRT_PRFX = 'lstm'
 STRATIFY = 'all'
@@ -388,11 +389,11 @@ print(experiment_log_dir)
 
 # COMMAND ----------
 
-# MAGIC %load_ext tensorboard
+##%load_ext tensorboard
 
 # COMMAND ----------
 
-# MAGIC %tensorboard --logdir $experiment_log_dir
+##%tensorboard --logdir $experiment_log_dir
 
 # COMMAND ----------
 
@@ -452,6 +453,14 @@ callbacks = [
 
 # COMMAND ----------
 
+X_shape
+
+# COMMAND ----------
+
+N_VOCAB
+
+# COMMAND ----------
+
 inputs['demog'] = inputs['demog'] + N_VOCAB -1
 
 # COMMAND ----------
@@ -484,7 +493,12 @@ N_VOCAB = np.max([np.max(l) for l in features]) + 1
 
 # COMMAND ----------
 
-mlflow.end_run()
+print(N_VOCAB)
+print(TIME_SEQ)
+
+# COMMAND ----------
+
+# mlflow.end_run()
 #
 # start mlflow run
 #
@@ -499,10 +513,11 @@ X = keras.preprocessing.sequence.pad_sequences(features,
     # sequence length, which is a size of time steps. Here we take the maximum size
     # of features that pad_sequences padded all the samples up to in the previous step.
 TIME_SEQ = X.shape[1]
+print(TIME_SEQ)
 
 model = tk.DAN(vocab_size=N_VOCAB,
                ragged=False,
-               input_length=TIME_SEQ)
+               input_length=TIME_SEQ, embedding_size=16)
 
 model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 print('Starting DAN model')
@@ -510,7 +525,7 @@ print('Starting DAN model')
 model.fit(X[train],
           y[train],
           batch_size=BATCH_SIZE,
-          epochs=EPOCHS,
+          epochs=200,
           validation_data=(X[val], y[val]),
           callbacks=callbacks,
           class_weight=weight_dict)
@@ -543,17 +558,17 @@ print(tensorboard_dir)
 ### REPLACE WITH MLFLOW
 # Create some callbacks
 callbacks = [
-    TensorBoard(
+#    TensorBoard(
         #log_dir=os.path.join(tensorboard_dir, OUTCOME, MOD_NAME),
-        log_dir=tensorboard_dir,
-        histogram_freq=1) #,
+#        log_dir=tensorboard_dir,
+#        histogram_freq=1) #,
         #update_freq=TB_UPDATE_FREQ,
         #embeddings_freq=5,
         #embeddings_metadata=os.path.join(tensorboard_dir,
         #                                 "emb_metadata.tsv"),
     #)
-    ,
-
+#    ,
+#
     # Create model checkpoint callback
     #keras.callbacks.ModelCheckpoint(filepath=os.path.join(
     #    tensorboard_dir, OUTCOME, MOD_NAME,
@@ -566,347 +581,89 @@ callbacks = [
     # Create early stopping callback
     keras.callbacks.EarlyStopping(monitor="val_loss",
                                   min_delta=0,
-                                  patience=20,
+                                  patience=50,
                                   mode="auto")
 ]
 
 # COMMAND ----------
 
+mlflow.end_run()
+
+# COMMAND ----------
+
+mlflow.tensorflow.autolog(log_models=False)
+#with mlflow.start_run(run_name="DAN_tuning", nested=True):
 tuner = kerastuner.tuners.bayesian.BayesianOptimization(
     hypermodel,
     max_trials = 10,
     objective= "val_loss",
-    project_name = "dan_hp_tune",
+    #project_name = "dan_hp_tune",
     directory=tensorboard_dir)
-
-# COMMAND ----------
-
-tuner.search_space_summary()
-
-# COMMAND ----------
-
+print(tuner.search_space_summary())
 tuner.search(X[train], y[train], validation_data=(X[val], y[val]), epochs= EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks)
+#mlflow.keras.log_model(some_ddp_model, some_path, pip_requirements=[f"torch=={torch.__version__}"])
+
+# COMMAND ----------
+
+# get the optimal hyperparameters
+best_hps = tuner.get_best_hyperparameters()[0].values
+
+print(best_hps)
+#print(best_hps.get('units'))
+#print(best_hps.get('learning_rate'))
+
+# COMMAND ----------
+
+tuner.get_best_models()[0].summary()
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+# Build the model with the optimal hyperparameters and train it on the data for 50 epochs
+#mlflow.tensorflow.autolog()
+with mlflow.start_run(run_name="DAN_best_model"):
+    model = tuner.hypermodel.build(tuner.get_best_hyperparameters()[0])
+    history = model.fit(X[train],
+          y[train],
+          batch_size=BATCH_SIZE,
+          epochs=200,
+          validation_data=(X[val], y[val]),
+          callbacks=callbacks,
+          class_weight=weight_dict)
+# mlflow.keras.log_model(model, "dan")
+
+# COMMAND ----------
+
+best_run = mlflow.search_runs(order_by=['metrics.auc DESC']).iloc[0]
+print(f'AUC of Best Run: {best_run["metrics.auc"]}')
 
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC # LSTM
+# MAGIC Update model Registry 
 
 # COMMAND ----------
 
-inputs['y'] = y
-inputs
+new_model_version = mlflow.register_model(f"runs:/{best_run.run_id}/model", model_name)
+
+# Registering the model takes a few seconds, so add a small delay
+time.sleep(15)
 
 # COMMAND ----------
 
-lstm_feat = inputs.reset_index()[['feat','demog','y']].values.tolist()
-#lstm_feat = [list(l) for l in zip(*inputs[['feat','demog','y']].values)]
-#lstm_feat = list(inputs[['feat','demog','y']].values.flatten())
-#lstm_feat = [inputs['feat'].tolist(), inputs['demog'].tolist(),inputs['y'].tolist()]
-lstm_feat
-
-# COMMAND ----------
-
-train_gen, test_gen, validation_gen = tk.create_all_data_gens(
-        inputs=lstm_feat,
-        split_idx=[train, test, val],
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        seed=RAND)
-
-# COMMAND ----------
-
-for data in train_gen.take(1):
-    print(data)
-
-# COMMAND ----------
-
-mlflow.end_run()
-#
-# start mlflow run
-#
-mlflow.start_run()
-mlflow.tensorflow.autolog()
-
-   
-model = tk.LSTM(time_seq=TIME_SEQ,
-                vocab_size=N_VOCAB,
-                n_classes=N_CLASS,
-                n_demog=N_DEMOG,
-                n_demog_bags=MAX_DEMOG,
-                ragged=True,
-                lstm_dropout=LSTM_DROPOUT,
-                recurrent_dropout=LSTM_RECURRENT_DROPOUT)
-model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
-
-    # Train
-fitting = model.fit(train_gen,
-                    validation_data=validation_gen,
-                    epochs=EPOCHS,
-                    callbacks=callbacks,
-                    class_weight=weight_dict)
-
-# Produce validation and test predictions
-val_probs = model.predict(validation_gen)
-test_probs = model.predict(test_gen)
-
-# COMMAND ----------
-
-weight_dict
-
-# COMMAND ----------
-
-y.sum()
-
-# COMMAND ----------
-
-
-
-# COMMAND ----------
-
-
-
-# COMMAND ----------
-
-
-
-# COMMAND ----------
-
-mlflow.end_run()
-#
-# start mlflow run
-#
-mlflow.start_run()
-mlflow.tensorflow.autolog()
-
-# === Long short-term memory model
-if "lstm" in MOD_NAME:
-    # Produce dataset generators
-    train_gen, test_gen, validation_gen = tk.create_all_data_gens(
-        inputs=inputs,
-        split_idx=[train, test, val],
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        seed=RAND)
-
-    if "hp_lstm" in MOD_NAME:
-        # NOTE: IF HP-tuned, we want to use SGD with the
-        # params found, so return compiled.
-        model = keras.models.load_model(os.path.join(
-            tensorboard_dir, "best", "lstm"),
-                                        custom_objects={'tf': tf},
-                                        compile=True)
-    else:
-        # %% Setting up the model
-        model = tk.LSTM(time_seq=TIME_SEQ,
-                        vocab_size=N_VOCAB,
-                        n_classes=N_CLASS,
-                        n_demog=N_DEMOG,
-                        n_demog_bags=MAX_DEMOG,
-                        ragged=True,
-                        lstm_dropout=LSTM_DROPOUT,
-                        recurrent_dropout=LSTM_RECURRENT_DROPOUT)
-        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
-
-    # Train
-    fitting = model.fit(train_gen,
-                        validation_data=validation_gen,
-                        epochs=EPOCHS,
-                        #callbacks=callbacks,
-                        class_weight=weight_dict)
-
-    # Produce validation and test predictions
-    val_probs = model.predict(validation_gen)
-    test_probs = model.predict(test_gen)
-
-# === Deep Averaging Network
-elif "dan" in MOD_NAME:
-    if DAY_ONE_ONLY:
-        # Optionally limiting the features to only those from the first day
-        # of the actual COVID visit
-        features = [l[0][-1] for l in inputs]
-    else:
-        features = [tp.flatten(l[0]) for l in inputs]
-
-    # Optionally mixing in the demographic features
-    if DEMOG:
-        new_demog = [[i + N_VOCAB - 1 for i in l[1]] for l in inputs]
-        features = [
-            features[i] + new_demog[i] for i in range(len(features))
-        ]
-        demog_vocab = {k: v + N_VOCAB - 1 for k, v in demog_lookup.items()}
-        vocab.update(demog_vocab)
-        N_VOCAB = np.max([np.max(l) for l in features]) + 1
-
-    # Making the variables
-    X = keras.preprocessing.sequence.pad_sequences(features,
-                                                   padding='post')
-
-    # DAN Model feeds in all features at once, so there's no need to limit to the
-    # sequence length, which is a size of time steps. Here we take the maximum size
-    # of features that pad_sequences padded all the samples up to in the previous step.
-    TIME_SEQ = X.shape[1]
-
-    if "hp_dan" in MOD_NAME:
-        # NOTE: IF HP-tuned, we want to use SGD with the
-        # params found, so return compiled.
-        # HACK: This kind of assumes we're tuning for multiclass,
-        # and I'm not really sure a way around that.
-        n_values = np.max(y) + 1
-        y_one_hot = np.eye(n_values)[y]
-
-        model = keras.models.load_model(os.path.join(
-            tensorboard_dir, "best", "dan"),
-                                        custom_objects={'tf': tf},
-                                        compile=True)
-
-        model.fit(X[train],
-              y_one_hot[train],
-              batch_size=BATCH_SIZE,
-              epochs=EPOCHS,
-              validation_data=(X[val], y_one_hot[val]),
-              callbacks=callbacks,
-              class_weight=weight_dict)
-
-
-    # Handle multiclass case
-    elif N_CLASS > 2:
-        # We have to pass one-hot labels for model fit, but CLF metrics
-        # will take indices
-        y_one_hot = ta.onehot_matrix(y)
-
-        # Produce DAN model to fit
-        model = tk.DAN(vocab_size=N_VOCAB,
-                       ragged=False,
-                       input_length=TIME_SEQ,
-                       n_classes=N_CLASS)
-
-        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
-        
-        model.fit(X[train],
-                  y_one_hot[train],
-                  batch_size=BATCH_SIZE,
-                  epochs=EPOCHS,
-                  validation_data=(X[val], y_one_hot[val]),
-                  callbacks=callbacks,
-                  class_weight=weight_dict)
-
-    else:
-        # Produce DAN model to fit
-        model = tk.DAN(vocab_size=N_VOCAB,
-                       ragged=False,
-                       input_length=TIME_SEQ)
-
-        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
-        print('Starting DAN model')
-        
-        model.fit(X[train],
-                  y[train],
-                  batch_size=BATCH_SIZE,
-                  epochs=EPOCHS,
-                  validation_data=(X[val], y[val]),
-                  callbacks=callbacks,
-                  class_weight=weight_dict)
-        # mlflow.keras.log_model(model, "dan")
-
-
-    # Produce DAN predictions on validation and test sets
-    val_probs = model.predict(X[val])
-    test_probs = model.predict(X[test])
-
-# === All model metrics, preds, and probs handling
-if N_CLASS <= 2:
-    # If we are in the binary case, compute grid metrics on validation data
-    # and compute the cutpoint for the test set.
-    val_gm = ta.grid_metrics(y[val], val_probs)
-
-    # Computed threshold cutpoint based on F1
-    # NOTE: we could change that too. Maybe that's not the best objective
-    cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-    
-    #
-    # add f1 to mlflow metrics
-    #
-    mlflow.log_metric("F1", np.max(val_gm.f1))
-
-    # Getting the stats
-    stats = ta.clf_metrics(y[test],
-                           test_probs,
-                           cutpoint=cutpoint,
-                           mod_name=MOD_NAME)
-
-    # Creating probability dict to save
-    prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
-
-    # Getting the test predictions
-    test_preds = ta.threshold(test_probs, cutpoint)
-
-else:
-    # Getting the stats
-    stats = ta.clf_metrics(y[test],
-                           test_probs,
-                           average="weighted",
-                           mod_name=MOD_NAME)
-
-    # Creating probability dict to save
-    prob_out = {'cutpoint': 0.5, 'probs': test_probs}
-
-    # Getting the test predictions
-    test_preds = np.argmax(test_probs, axis=1)
-
-    # Saving the max from each row for writing to CSV
-    test_probs = np.amax(test_probs, axis=1)
-
-#
-# END MLFLOW RUN
-#
-
-mlflow.log_metric("tp", stats['tp'][0])
-mlflow.log_metric("fp", stats['fp'][0])
-mlflow.log_metric("tn", stats['tn'][0])
-mlflow.log_metric("fn", stats['fn'][0])
-mlflow.log_metric("sens", stats['sens'][0])
-mlflow.log_metric("spec", stats['spec'][0])
-mlflow.log_metric("ppv", stats['ppv'][0])
-mlflow.log_metric("npv", stats['npv'][0])
-mlflow.log_metric("j", stats['j'][0])
-mlflow.log_metric("f1", stats['f1'][0])
-mlflow.log_metric("mcc", stats['mcc'][0])
-mlflow.log_metric("brier", stats['brier'][0])
-mlflow.log_metric("auc", stats['auc'][0])
-
-mlflow.end_run()
-
-
-# COMMAND ----------
-
-
-# --- Writing the metrics results to disk
-# Optionally append results if file already exists
-append_file = os.path.exists(stats_file)
-
-stats.to_csv(stats_file,
-             mode="a" if append_file else "w",
-             header=False if append_file else True,
-             index=False)
-
-# --- Writing the predicted probabilities to disk
-with open(probs_file, "wb") as f:
-    pkl.dump(prob_out, f)
-
-# --- Writing the test predictions to the test predictions CSV
-
-if os.path.exists(preds_file):
-    preds_df = pd.read_csv(preds_file)
-else:
-    preds_df = pd.read_csv(
-        os.path.join(output_dir, OUTCOME + "_cohort.csv"))
-    preds_df = preds_df.iloc[test, :]
-
-preds_df[MOD_NAME + '_prob'] = test_probs
-preds_df[MOD_NAME + '_pred'] = test_preds
-preds_df.to_csv(preds_file, index=False)
-
-# COMMAND ----------
-
-
+# Archive the old model version
+client.transition_model_version_stage(
+  name=model_name,
+  version=model_version.version,
+  stage="Archived"
+)
+
+# Promote the new model version to Production
+client.transition_model_version_stage(
+  name=model_name,
+  version=new_model_version.version,
+  stage="Production"
+)
