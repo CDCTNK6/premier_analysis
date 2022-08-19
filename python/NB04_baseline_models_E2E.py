@@ -273,19 +273,22 @@ time.sleep(15)
 
 # COMMAND ----------
 
-# Archive the old model version
-client.transition_model_version_stage(
-  name=model_name,
-  version=model_version.version,
-  stage="Archived"
-)
-
-# Promote the new model version to Production
-client.transition_model_version_stage(
-  name=model_name,
-  version=new_model_version.version,
-  stage="Production"
-)
+# MAGIC %md 
+# MAGIC ```
+# MAGIC # Archive the old model version
+# MAGIC client.transition_model_version_stage(
+# MAGIC   name=model_name,
+# MAGIC   version=model_version.version,
+# MAGIC   stage="Archived"
+# MAGIC )
+# MAGIC 
+# MAGIC # Promote the new model version to Production
+# MAGIC client.transition_model_version_stage(
+# MAGIC   name=model_name,
+# MAGIC   version=new_model_version.version,
+# MAGIC   stage="Production"
+# MAGIC )
+# MAGIC ```
 
 # COMMAND ----------
 

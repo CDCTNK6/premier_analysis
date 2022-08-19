@@ -203,8 +203,10 @@ comp_int_seqs[0][0][0]
 # this works!
 #with open(os.path.join(pkl_dir, 'int_seqs_fromdelta.pkl'), 'rb') as f:
 #    int_seqs = pkl.load(f)
+# USE THIS TO REPRODUCE 
 int_seqs = tp.read_table(data_dir,"interim_int_seqs_pkl")  
 int_seqs = int_seqs.values.tolist() 
+###
 #with open(os.path.join(pkl_dir, 'pat_data_fromdelta.pkl'), 'rb') as f:
 with open(os.path.join(pkl_dir, 'pat_data.pkl'), 'rb') as f:
     pat_data = pkl.load(f)
@@ -232,6 +234,8 @@ print(pat_data.keys())
 print(type(pat_data['key']))
 print(pat_data['outcome'].keys())
 print(pat_data['outcome']['icu'])
+
+# THERE IS A BUG IN THE pat_dat['outcome']['icu'] ??? 
 
 # COMMAND ----------
 

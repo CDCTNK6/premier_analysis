@@ -236,37 +236,48 @@ callbacks = [
 
 # COMMAND ----------
 
-#mlflow.end_run()
+mlflow.end_run()
 
 # COMMAND ----------
 
 loss_fn = keras.losses.binary_crossentropy
 BATCH_SIZE=64
 print('Starting DAN model')
-#mlflow.keras.autolog()
 
-model = tk.DAN(vocab_size=N_VOCAB,
-               ragged=False,
-               input_length=TIME_SEQ, embedding_size=16)
 
-model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
+with mlflow.start_run(run_name='test_Dan') as run:
+    mlflow.tensorflow.autolog()
+    
+    mlflow.log_param("Test Dataset",test_name)
+    mlflow.log_param("Test Dataset Version",test_version )
+    mlflow.log_param("Train Dataset",train_name)
+    mlflow.log_param("Train Dataset Version",train_version )
+    mlflow.log_param("Validation Dataset",val_name)
+    mlflow.log_param("Validation Dataset Version",val_version )
+    model = tk.DAN(vocab_size=N_VOCAB,
+                   ragged=False,
+                   input_length=TIME_SEQ, embedding_size=16)
 
-# train the model 
-results = model.fit(X_train,
-          y_train,
-          batch_size=BATCH_SIZE,
-          epochs=4,
-          validation_data=(X_val, y_val),
-          callbacks=callbacks)
-          #class_weight=weight_dict)
+    model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
-# Produce DAN predictions on validation and test sets
-val_probs = model.predict(X_val)
-test_probs = model.predict(X_test)
+    # train the model 
+    results = model.fit(X_train,
+              y_train,
+              batch_size=BATCH_SIZE,
+              epochs=4,
+              validation_data=(X_val, y_val),
+              callbacks=callbacks)
+              #class_weight=weight_dict)
+
+    # Produce DAN predictions on validation and test sets
+    val_probs = model.predict(X_val)
+    test_probs = model.predict(X_test)
+    mlflow.keras.log_model(model,"DAN")
 
 # Use mlflow to log the run and model 
-with mlflow.start_run(run_name='test_Dan') as run:
-    mlflow.keras.log_model(model,"DAN")
+#with mlflow.start_run(run_name='test_Dan') as run:
+#    mlflow.keras.log_model(model,"DAN")
+
 
 # COMMAND ----------
 
@@ -382,7 +393,7 @@ callbacks = [
     # Create early stopping callback
     keras.callbacks.EarlyStopping(monitor="val_loss",
                                   min_delta=0,
-                                  patience=10,
+                                  patience=4,
                                   mode="auto")
 ]
 
@@ -392,18 +403,26 @@ mlflow.end_run()
 
 # COMMAND ----------
 
-EPOCHS=50
-mlflow.tensorflow.autolog(log_models=False)
-#with mlflow.start_run(run_name="DAN_tuning", nested=True):
-tuner = kerastuner.tuners.bayesian.BayesianOptimization(
-    hypermodel,
-    max_trials = 10,
-    objective= "val_loss",
-    #project_name = "dan_hp_tune",
-    directory=tensorboard_dir)
-print(tuner.search_space_summary())
-tuner.search(X_train, y_train, validation_data=(X_val, y_val), epochs= EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks)
-#mlflow.keras.log_model(some_ddp_model, some_path, pip_requirements=[f"torch=={torch.__version__}"])
+EPOCHS=20
+with mlflow.start_run(run_name="DAN_tuning", nested=True):
+    mlflow.tensorflow.autolog(log_models=True)
+    mlflow.log_param("Test Dataset",test_name)
+    mlflow.log_param("Test Dataset Version",test_version )
+    mlflow.log_param("Train Dataset",train_name)
+    mlflow.log_param("Train Dataset Version",train_version )
+    mlflow.log_param("Validation Dataset",val_name)
+    mlflow.log_param("Validation Dataset Version",val_version )
+    #with mlflow.start_run(run_name="DAN_tuning", nested=True):
+    tuner = kerastuner.tuners.bayesian.BayesianOptimization(
+        hypermodel,
+        max_trials = 10,
+        objective= "val_loss",
+        #project_name = "dan_hp_tune",
+        directory=tensorboard_dir)
+    print(tuner.search_space_summary())
+    tuner.search(X_train, y_train, validation_data=(X_val, y_val), epochs= EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks)
+mlflow.end_run()
+    #mlflow.keras.log_model(some_ddp_model, some_path, pip_requirements=[f"torch=={torch.__version__}"])
 
 # COMMAND ----------
 
@@ -423,6 +442,13 @@ tuner.get_best_models()[0].summary()
 # Build the model with the optimal hyperparameters and train it on the data for 50 epochs
 #mlflow.tensorflow.autolog()
 with mlflow.start_run(run_name="DAN_best_model"):
+    mlflow.tensorflow.autolog(log_models=True)
+    mlflow.log_param("Test Dataset",test_name)
+    mlflow.log_param("Test Dataset Version",test_version )
+    mlflow.log_param("Train Dataset",train_name)
+    mlflow.log_param("Train Dataset Version",train_version )
+    mlflow.log_param("Validation Dataset",val_name)
+    mlflow.log_param("Validation Dataset Version",val_version )
     model = tuner.hypermodel.build(tuner.get_best_hyperparameters()[0])
     history = model.fit(X_train,
           y_train,
@@ -432,7 +458,7 @@ with mlflow.start_run(run_name="DAN_best_model"):
           callbacks=callbacks) #,
 #          class_weight=weight_dict)
 # mlflow.keras.log_model(model, "dan")
-
+mlflow.end_run()
 val_probs = model.predict(X_val)
 test_probs = model.predict(X_test)
 
@@ -452,7 +478,7 @@ mlflow.search_runs().columns
 # COMMAND ----------
 
 new_model_version = mlflow.register_model(f"runs:/{best_run.run_id}/model", model_name)
-
+print(new_model_version)
 # Registering the model takes a few seconds, so add a small delay
 time.sleep(15)
 

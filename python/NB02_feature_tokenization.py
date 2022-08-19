@@ -105,14 +105,22 @@ provider
 
 # COMMAND ----------
 
+print(comp_provider.columns)
+print(provider.columns)
 print(id_df.columns)
 print(comp_id_df.columns)
 print(pat_df.columns)
 print(comp_pat_df.columns)
+[set(comp_id_df) - set(id_df)]
 
 # COMMAND ----------
 
 misa_data
+
+# COMMAND ----------
+
+comp_trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
+comp_trimmed_seq
 
 # COMMAND ----------
 
@@ -124,6 +132,7 @@ trimmed_seq
 # COMMAND ----------
 
 # %% Filter Denom to those identified in MISA case def
+print(MISA_ONLY)
 if MISA_ONLY:
     trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(
         misa_data.medrec_key)]
@@ -132,9 +141,11 @@ if MISA_ONLY:
 n_patients = trimmed_seq["medrec_key"].nunique()
 print(f'Number of patients: {n_patients}')
 # Ensure we're sorted
+
 trimmed_seq.sort_values(["medrec_key", "dfi"], inplace=True)
 
 # %% Optionally drops vitals and genlab from the features
+print(NO_VITALS)
 if NO_VITALS:
     ftr_cols = ['bill', 'lab_res', 'proc', 'diag']
 
@@ -186,6 +197,10 @@ sorted(sp_model.vocabulary)
 
 # COMMAND ----------
 
+trimmed_seq.ftrs
+
+# COMMAND ----------
+
 # %% Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
 vec = CountVectorizer(ngram_range=(1, 1), min_df=MIN_DF, binary=True)
@@ -232,7 +247,7 @@ pat_df
 
 # COMMAND ----------
 
-
+print(ADD_DEMOG)
 
 # COMMAND ----------
 
@@ -272,8 +287,8 @@ if ADD_DEMOG:
     seq_gen = [seq for seq in zip(seq_gen, demog_ints)]
 
     # And saving vocab
-    with open(pkl_dir + "demog_dict.pkl", "wb") as f:
-        pkl.dump(demog_vocab, f)
+#    with open(pkl_dir + "demog_dict.pkl", "wb") as f:
+#        pkl.dump(demog_vocab, f)
 
 # COMMAND ----------
 
@@ -285,7 +300,8 @@ demog_vocab
 
 # COMMAND ----------
 
-print(seq_gen[0][0][0])
+print(seq_gen[0][0])
+print('----------')
 print(seq_gen[0][1])
 
 # COMMAND ----------
@@ -301,12 +317,12 @@ cv_pats
 # COMMAND ----------
 
 # FIX?: Remove no_covid indices
-#print(len(cv_pats))
+print(len(cv_pats))
 no_covid = np.where([np.sum(doc) == 0 for doc in cv_pats])[0]
-#print(len(no_covid))
-#cv_pats = [e for i,e in enumerate(cv_pats) if i not in no_covid]
-#print(len(cv_pats))
-#cv_pats
+print(len(no_covid))
+cv_pats = [e for i,e in enumerate(cv_pats) if i not in no_covid]
+print(len(cv_pats))
+cv_pats
 
 # COMMAND ----------
 
@@ -321,7 +337,7 @@ trimmed_seq
 
 # COMMAND ----------
 
-
+trimmed_seq
 
 # COMMAND ----------
 
@@ -346,6 +362,10 @@ with open(pkl_dir + "int_seqs_fromdelta.pkl", "wb") as f:
 
 tmp_to_save = pd.DataFrame(seq_gen)
 tmp_to_save = spark.createDataFrame(tmp_to_save)
+display(tmp_to_save)
+
+# COMMAND ----------
+
 tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.interim_int_seqs_pkl")
 
 # COMMAND ----------

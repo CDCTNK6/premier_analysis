@@ -491,7 +491,7 @@ mlflow.set_experiment(experiment_name) # this creates a workspace experiment if 
 with mlflow.start_run() as run:
     lgr.fit(X, y)
     mlflow.log_param("Test Dataset",test_table_name)
-    mlflow.log_param("Test Dataset Version",tmp_val[-1].__getitem__('version'))
+    mlflow.log_param("Test Dataset Version",tmp_val[0].__getitem__('version'))
     mlflow.sklearn.log_model(lgr, "lgr")
 coef_list = []
 
